@@ -10,7 +10,7 @@
 
 import type { DatabaseSync } from 'node:sqlite'
 import type { InferenceSession } from 'onnxruntime-node'
-import { cosine, embed, ensureModel, modelReadyNow } from './model.ts'
+import { cosine, embed, ensureModel } from './model.ts'
 import { storeDatabase } from './store.ts'
 
 /** The search modes. */
@@ -86,19 +86,23 @@ export async function searchLocal(input: {
 }): Promise<LocalSearchResult> {
   const started = performance.now()
   const db = await storeDatabase()
-  const ready = modelReadyNow()
   const perQuery = Math.max(1, Math.ceil(input.maxResults * 2))
   const rankings: string[][] = []
+
+  // Warm the model before deciding: in a fresh process `modelReadyNow()` is
+  // false until the first `ensureModel()`, which would silently demote a
+  // hybrid query to lexical. Loading is cached; failures stay lexical.
+  let session: Awaited<ReturnType<typeof ensureModel>> = null
+  if (input.mode === 'semantic' || input.mode === 'hybrid') {
+    session = await ensureModel()
+  }
 
   for (const query of input.queries) {
     if (input.mode === 'lexical' || input.mode === 'hybrid') {
       rankings.push(await lexicalRanking(db, query, perQuery))
     }
-    if ((input.mode === 'semantic' || input.mode === 'hybrid') && ready) {
-      const session = await ensureModel()
-      if (session !== null) {
-        rankings.push(await semanticRanking(db, session, query, perQuery))
-      }
+    if ((input.mode === 'semantic' || input.mode === 'hybrid') && session !== null) {
+      rankings.push(await semanticRanking(db, session, query, perQuery))
     }
   }
 
@@ -108,7 +112,7 @@ export async function searchLocal(input: {
   return {
     mode: input.mode,
     hits,
-    modelReady: ready,
+    modelReady: session !== null,
     elapsedMs: Math.round(performance.now() - started),
   }
 }

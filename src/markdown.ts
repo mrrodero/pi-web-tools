@@ -26,8 +26,13 @@ turndown.addRule('listItem', {
   replacement(content, node, options) {
     const parent = node.parentNode
     let prefix: string
-    if (parent !== null && parent.nodeName === 'OL' && parent instanceof Element) {
-      const start = parent.getAttribute('start')
+    // `nodeName === 'OL'` is sufficient: turndown's parser nodes (domino in
+    // Node, real DOM in browsers) always expose it, and `instanceof Element`
+    // would reference a global that does not exist in plain Node. The cast is
+    // safe: every OL node implementation has `getAttribute`.
+    if (parent !== null && parent.nodeName === 'OL') {
+      const ol = parent as ParentNode & { getAttribute: (name: string) => string | null }
+      const start = ol.getAttribute('start')
       const index = Array.prototype.indexOf.call(parent.children, node)
       prefix = `${start !== null && start !== '' ? Number(start) + index : index + 1}.`
     } else {
