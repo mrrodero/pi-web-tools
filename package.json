@@ -17,7 +17,9 @@
     "test": "vitest run",
     "check": "tsc --noEmit",
     "integration": "tsx tests/integration.ts",
-    "harness": "tsx tests/harness.ts"
+    "harness": "tsx tests/harness.ts",
+    "health": "tsx scripts/engine-health.ts",
+    "trends": "tsx scripts/engine-trends.ts"
   },
   "dependencies": {
     "@joplin/turndown-plugin-gfm": "^1.0.67",

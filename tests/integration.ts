@@ -42,8 +42,17 @@ if (session !== null) {
 }
 
 // 2. Live SearXNG search.
-const hits = await searchSearxng(config.searxngBaseURL, 'hugging face gguf quantization', { maxResults: 3 })
-check('web_search (SearXNG)', hits.length > 0, hits[0]?.url ?? 'no hits')
+const live = await searchSearxng(config.searxngBaseURL, 'hugging face gguf quantization', { maxResults: 3 })
+check('web_search (SearXNG)', live.hits.length > 0, live.hits[0]?.url ?? 'no hits')
+// Whether upstream engines answer is theirs to decide; what this owns is that
+// the health report survives the round trip: every entry names an engine and a
+// reason, and provenance is attached to the hits.
+check(
+  'web_search engine health report',
+  live.unresponsive.every(e => e.engine.length > 0 && e.reason.length > 0) &&
+    live.hits.every(h => Array.isArray(h.engines)),
+  live.unresponsive.map(e => `${e.engine}:${e.reason}`).join(' ') || 'no engine complaints',
+)
 
 // 3. Plain-HTTP fetch + extract + index round-trip.
 const raw = await fetchPage('https://quotes.toscrape.com', {

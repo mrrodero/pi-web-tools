@@ -1,0 +1,31 @@
+# Snapshot of the host's settings.yml as FOUND at 2026-11-02T11:35Z — the
+# before-state, kept for the diagnosis in ../README.md §1. It is not what the
+# host runs now: ../settings.yml was applied at 12:57 CET (backup of this file:
+# settings.yml.bak-20261102T113510Z beside it on the host). Note the duplicated
+# `use_default_settings:` here — that is the file's own bug, not a copy error.
+#
+# Minimal SearXNG settings override for the DeepSeek Harness search provider.
+use_default_settings: true
+server:
+  # REQUIRED in production - generate once with: openssl rand -hex 32
+  # The app exits at startup if the stock default is used.
+  secret_key: "<REDACTED — lives only in the server file>"
+  # Trimmed compose has no valkey service, so the limiter stays off.
+  limiter: false
+  # Makes absolute URLs/links in the UI and API correct.
+  base_url: http://192.168.144.120:8888
+search:
+  # JSON format is OFF by default in the image; the provider needs it.
+  formats:
+    - html
+    - json
+use_default_settings: true
+engines:
+  - name: bing
+    disabled: false
+  - name: qwant
+    disabled: false
+  - name: yahoo
+    disabled: false
+  - name: mwmbl
+    disabled: false

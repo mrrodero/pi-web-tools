@@ -25,7 +25,7 @@ import { extractPage } from './extract.ts'
 import { fetchPage } from './fetcher.ts'
 import { configureModelDir } from './model.ts'
 import { searchLocal } from './search.ts'
-import { searchSearxng } from './searxng.ts'
+import { searchSearxng, unresponsiveHealthNote } from './searxng.ts'
 import { closeIndexStore, configureStorePath, indexPage, indexStats } from './store.ts'
 import { normalizeUrl } from './urls.ts'
 
@@ -55,17 +55,18 @@ export default function webToolsExtension(pi: ExtensionAPI): void {
       maxResults: Type.Optional(Type.Number({ minimum: 1, maximum: 10, description: 'Result cap (default 8)' })),
     }),
     async execute(_toolCallId, params, signal) {
-      const hits = await searchSearxng(config.searxngBaseURL, params.query, {
+      const { hits, unresponsive } = await searchSearxng(config.searxngBaseURL, params.query, {
         categories: params.categories,
         language: params.language,
         timeRange: params.timeRange,
         maxResults: params.maxResults ?? 8,
         signal,
       })
+      const healthNote = unresponsiveHealthNote(unresponsive)
       if (hits.length === 0) {
         return {
-          content: [{ type: 'text', text: 'No results for: ' + params.query }],
-          details: { count: 0, query: params.query },
+          content: [{ type: 'text', text: `No results for: ${params.query}${healthNote}` }],
+          details: { count: 0, query: params.query, unresponsive },
         }
       }
       const text = hits
@@ -78,8 +79,8 @@ export default function webToolsExtension(pi: ExtensionAPI): void {
         })
         .join('\n\n')
       return {
-        content: [{ type: 'text', text }],
-        details: { count: hits.length, query: params.query },
+        content: [{ type: 'text', text: text + healthNote }],
+        details: { count: hits.length, query: params.query, unresponsive },
       }
     },
   }))

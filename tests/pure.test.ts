@@ -9,6 +9,7 @@ import { chunkText } from '../src/store.ts'
 import { domainKey, isHttpUrl, normalizeUrl } from '../src/urls.ts'
 import { cosine, wordPieceTokenize, CLS_ID, SEP_ID, UNK_ID } from '../src/model.ts'
 import { parseRobots, robotsAllowed, EMPTY_POLICY } from '../src/robots.ts'
+import { parseUnresponsive, unresponsiveHealthNote } from '../src/searxng.ts'
 
 describe('chunkText', () => {
   it('splits on blank lines and drops empty paragraphs', () => {
@@ -110,6 +111,45 @@ describe('cosine', () => {
   })
   it('returns 0 for length mismatch', () => {
     expect(cosine(new Float32Array([1]), new Float32Array([1, 0]))).toBe(0)
+  })
+})
+
+describe('searxng engine health', () => {
+  it('reads the [engine, reason] pairs current builds send', () => {
+    expect(parseUnresponsive([['brave', 'access denied'], ['qwant', 'timeout']])).toEqual([
+      { engine: 'brave', reason: 'access denied' },
+      { engine: 'qwant', reason: 'timeout' },
+    ])
+  })
+  it('reads the third slot newer builds add, without losing the reason', () => {
+    expect(parseUnresponsive([['duckduckgo', 'captcha', 'SearxEngineCaptchaException']]))
+      .toEqual([{ engine: 'duckduckgo', reason: 'captcha' }])
+  })
+  it('accepts bare engine names from older builds', () => {
+    expect(parseUnresponsive(['mwmbl', 'mojeek'])).toEqual([
+      { engine: 'mwmbl', reason: 'unresponsive' },
+      { engine: 'mojeek', reason: 'unresponsive' },
+    ])
+  })
+  it('ignores entries that name no engine, and a missing field', () => {
+    expect(parseUnresponsive([['', 'timeout'], [null], 7, undefined])).toEqual([])
+    expect(parseUnresponsive(undefined)).toEqual([])
+  })
+  it('stays silent when every engine answered, and names them otherwise', () => {
+    expect(unresponsiveHealthNote([])).toBe('')
+    const note = unresponsiveHealthNote([
+      { engine: 'brave', reason: 'access denied' },
+      { engine: 'qwant', reason: 'timeout' },
+    ])
+    expect(note).toContain('brave (access denied)')
+    expect(note).toContain('qwant (timeout)')
+  })
+  it('caps the list and counts what it left out', () => {
+    const many = Array.from({ length: 9 }, (_, i) => ({ engine: `e${i}`, reason: 'timeout' }))
+    const note = unresponsiveHealthNote(many)
+    expect(note).toContain('e5 (timeout)')
+    expect(note).not.toContain('e6')
+    expect(note).toContain('+3 more')
   })
 })
 

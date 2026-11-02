@@ -1,0 +1,37 @@
+# Self-hosted SearXNG instance for the DeepSeek Harness `web_search` provider.
+#
+# Mirrors the official searxng/searxng docker layout
+# (https://github.com/searxng/searxng-docker), trimmed for a private
+# single-user instance: the optional valkey limiter service is omitted, so
+# the limiter stays off (see https://docs.searxng.org/admin/searx.limiter.html).
+#
+# Usage:
+#   docker compose up -d
+#   HTML UI:  http://<host>:8080/
+#   JSON API: http://<host>:8080/search?q=...&format=json
+
+services:
+  core:
+    image: docker.io/searxng/searxng:${SEARXNG_VERSION:-latest}
+    container_name: searxng
+    ports:
+      - "${SEARXNG_HOST:+${SEARXNG_HOST}:}${SEARXNG_PORT:-8080}:${SEARXNG_PORT:-8080}"
+    env_file:
+      - ./.env
+    volumes:
+      - ./core-config/:/etc/searxng/:Z
+      - core-data:/var/cache/searxng/
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:${SEARXNG_PORT:-8080}/healthz', timeout=4)"
+      interval: 1m30s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+volumes:
+  core-data:

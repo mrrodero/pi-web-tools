@@ -1,0 +1,131 @@
+# SearXNG settings for the pi-web-tools / DeepSeek Harness instance.
+#
+# This is a drop-in replacement for /opt/docker/llm/searxng/core-config/settings.yml
+# (mounted as /etc/searxng/settings.yml by ops/searxng/live/docker-compose.yml).
+# It keeps everything the live file does — diff it against ops/searxng/live/settings.yml.
+#
+# Procedure:
+#   ssh root@192.168.144.120 cp /opt/docker/llm/searxng/core-config/settings.yml \
+#     /opt/docker/llm/searxng/core-config/settings.yml.bak
+#   ssh root@192.168.144.120 'cat > /opt/docker/llm/searxng/core-config/settings.yml' < settings.yml
+#   ssh root@192.168.144.120 'docker restart searxng'      # ~3s, the only downtime here
+#   npm run health                                          # re-measure
+#
+# Fill in the two secrets before uploading: the existing secret_key (a new one
+# invalidates sessions and the result cache) and a separate /metrics password.
+#
+# Every engine change is justified by a measurement taken on 2026-11-02 with
+# `npm run health` (10 live probes + /stats/errors) and `npm run trends` (the
+# harvested journal). Engine health is time-of-day and rate-limit dependent:
+# these are starting points, and the point of the harvest is to re-check them.
+
+# The live file declares `use_default_settings: true` twice (lines 1 and 20);
+# PyYAML keeps the last one silently. Declaring it once, as a dict, is what
+# makes `engines.remove` available (searx/settings_loader.py:146-168).
+use_default_settings:
+  engines:
+    remove:
+      # Optional, not a fix. ahmia (default settings.yml:386) and torch (:2485)
+      # are the two `categories: onions` engines. Nothing in this instance's
+      # journal shows them failing, and they never answered a probe either — so
+      # removing them only shrinks the engine table. Keep them if you want Tor
+      # results later.
+      - ahmia
+      - torch
+
+server:
+  # COPY THE KEY THAT IS ALREADY IN THE LIVE FILE.
+  secret_key: "COPY_THE_EXISTING_KEY"
+
+  # Off, as today: the trimmed compose has no valkey service, and the limiter
+  # needs one. Consequence worth knowing: searx/limiter.py:226-231 still
+  # initializes botdetection ("even if the limiter is not activated"), so a
+  # request with no proxy headers logs
+  #   ERROR:searx.botdetection: X-Forwarded-For nor X-Real-IP header is set!
+  # once per container start (log_error_only_once, botdetection/trusted_proxies.py:151).
+  # Agents connect straight to :8888, so that line is expected noise, not a fault —
+  # do not go looking for a proxy bug when you read the logs.
+  limiter: false
+
+  # Makes the URLs the API and UI emit correct, which matters when an agent
+  # copies a result URL out of a JSON response.
+  base_url: http://192.168.144.120:8888
+
+general:
+  instance_name: pi-web-tools
+  # Stated explicitly rather than inherited, because /metrics needs it:
+  # webapp.py:1179 returns 404 unless enable_metrics is on *and* open_metrics is
+  # set. Before it was set here, /metrics answered 404; with it set, a missing
+  # or wrong password answers 401 instead.
+  enable_metrics: true
+  # A second secret, not secret_key. Once set, harvest.sh picks up
+  #   searxng_engines_request_count_total   requests sent to each engine
+  #   searxng_engines_result_count_total    results it returned
+  #   searxng_engines_reliability_total     searxng's own reliability score
+  #   searxng_engines_response_time_{total,processing,http}_seconds
+  # which is the denominator that turns today's failure *counts* into rates.
+  # webapp.py:1182 compares `sxng_request.authorization.password` — HTTP Basic
+  # from the Authorization header — so `?password=...` in the query string is
+  # ignored. Keep the value out of git: on this host it lives in
+  # /opt/docker/llm/searxng/harvest/harvest.env (root, mode 600), sourced by the
+  # cron entry in cron.d.example before harvest.sh runs.
+  open_metrics: "SET_A_SEPARATE_METRICS_PASSWORD"
+
+search:
+  # JSON is off in the image by default; web_search calls ?format=json.
+  formats: [html, json]
+  # The default autocomplete backend is duckduckgo, an engine this file
+  # disables. Point it at an engine that is actually enabled (bing answers in 9
+  # of 10 health probes); "" turns autocomplete off entirely (allowed by the
+  # schema). The value must be a string — `autocomplete: null` fails
+  # settings_defaults.py and the container crash-loops with
+  # `ValueError: Invalid settings.yml`. `/config` confirms the value; the
+  # /autocomplete route itself is not exercised by any tool here.
+  autocomplete: bing
+
+outgoing:
+  # Per-engine request timeout (default settings.yml:178). A whole query waits
+  # for the slowest engine it selected, capped by max_request_timeout (commented
+  # out at default settings.yml:180; the arithmetic is searx/search/__init__.py:111-125):
+  #   actual_timeout = min(max(selected engine timeouts), max_request_timeout)
+  # Measured here: p50 1.5s, worst 2.0s — room enough to give the two engines
+  # that time out more time instead of losing their results.
+  request_timeout: 3.0
+  max_request_timeout: 10.0
+
+engines:
+  # User engine entries merge into the defaults by name
+  # (searx/settings_loader.py:154-168); anything absent keeps its default state.
+
+  # Kept, as in the live file.
+  - name: bing
+    disabled: false
+  - name: mwmbl
+    disabled: false
+
+  # Kept, with a longer timeout: yahoo timed out 4 times in the harvested hour
+  # (the only engine searxng logged as "engine timeout" without an exception
+  # class) and still contributed hits in 10/10 health probes.
+  - name: yahoo
+    disabled: false
+    timeout: 5.0
+
+  # Changed: qwant was enabled by the live file, but it failed 8 times in the
+  # harvest (SearxEngineAccessDeniedException), is 90% access-denied in the
+  # instance's own /stats/errors, and answered 0 of 10 probes. searxng has
+  # already auto-suspended it, so disabling mostly buys a quieter log and a
+  # shorter `unresponsive` list — which the web_search tool now surfaces.
+  - name: qwant
+    disabled: true
+
+  # Changed: duckduckgo failed 6 times in the harvest (CAPTCHA), 80% CAPTCHA in
+  # /stats/errors, 0 of 10 probes. But earlier the same day it was contributing
+  # the best-scoring results of any engine, so treat this as temporary: re-enable
+  # it in a few days and run `npm run health` before deciding.
+  - name: duckduckgo
+    disabled: true
+
+  # wikipedia: 2 timeouts harvested, 5% timeout in /stats/errors. Worth more
+  # time rather than removal — it is the engine that answers reference queries.
+  - name: wikipedia
+    timeout: 5.0
