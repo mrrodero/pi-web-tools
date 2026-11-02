@@ -102,6 +102,9 @@ interface EngineProfile {
   requests?: number
   results?: number
   reliability?: number
+  /** Seconds per counted request, from the OpenMetrics gauges (see below). */
+  avgTotalSec?: number
+  avgHttpSec?: number
 }
 
 const profiles = new Map<string, EngineProfile>()
@@ -129,12 +132,22 @@ for (const entry of journal) {
 // value is itself the increase — clamping it to zero would silently drop every
 // request made after a restart, which is exactly the window where engines
 // misbehave most.
-const counters = new Map<string, { requests: number, results: number, reliability: number }>()
+//
+// Response times are gauges (an average over the requests counted so far), so
+// they are not differenced directly: multiply by that snapshot's request count
+// to get a total, then take the difference of totals and divide it by the
+// requests that arrived in between. That attributes latency to the window it
+// happened in, which is what `timeout:` in settings.yml is being chosen against.
+const counters = new Map<string, {
+  requests: number, results: number, reliability: number,
+  totalSec: number, httpSec: number
+}>()
 const previous = new Map<string, Record<string, number>>()
 for (const snapshot of metrics) {
   for (const engine of snapshot.payload) {
     const before = previous.get(engine.engine)
-    const acc = counters.get(engine.engine) ?? { requests: 0, results: 0, reliability: 0 }
+    const acc = counters.get(engine.engine)
+      ?? { requests: 0, results: 0, reliability: 0, totalSec: 0, httpSec: 0 }
     const increase = (key: string) => {
       const now = engine.metrics[key] ?? 0
       const was = before?.[key] ?? 0
@@ -143,6 +156,19 @@ for (const snapshot of metrics) {
     acc.requests += increase('request_count_total')
     acc.results += increase('result_count_total')
     acc.reliability = engine.metrics.reliability_total ?? acc.reliability
+
+    const nNow = engine.metrics.request_count_total ?? 0
+    const nWas = before?.request_count_total ?? 0
+    const restarted = before === undefined || nNow < nWas
+    for (const [key, field] of [
+      ['response_time_total_seconds', 'totalSec'],
+      ['response_time_http_seconds', 'httpSec'],
+    ] as const) {
+      const now = (engine.metrics[key] ?? 0) * nNow
+      const was = restarted ? 0 : (before?.[key] ?? 0) * nWas
+      acc[field] += Math.max(0, now - was)
+    }
+
     counters.set(engine.engine, acc)
     previous.set(engine.engine, engine.metrics)
   }
@@ -168,23 +194,37 @@ for (const [engine, acc] of counters) {
   profile.requests = acc.requests
   profile.results = acc.results
   profile.reliability = acc.reliability
+  profile.avgTotalSec = acc.requests > 0 ? acc.totalSec / acc.requests : undefined
+  profile.avgHttpSec = acc.requests > 0 ? acc.httpSec / acc.requests : undefined
   profiles.set(engine, profile)
 }
 
 const rows = [...profiles.values()].sort((a, b) => b.failures - a.failures || a.engine.localeCompare(b.engine))
 
 console.log('\n=== engine failure counts (harvested journal) ===')
-console.log('engine              fails  rate   requests  results  reliab  dominant failure mode')
+console.log('engine              fails  rate   requests  results  reliab  avg_s  http_s  dominant failure mode')
 for (const row of rows) {
   const rate = row.requests !== undefined && row.requests > 0
     ? `${Math.round((row.failures / row.requests) * 100)}%`.padStart(5)
     : '  n/a'
   const mode = [...row.modes.entries()].sort((a, b) => b[1] - a[1])[0]
+  const secs = (v: number | undefined) =>
+    typeof v === 'number' ? v.toFixed(2).padStart(5) : '    -'
   console.log(
     `  ${row.engine.padEnd(18)} ${String(row.failures).padStart(5)} ${rate}`
     + ` ${String(row.requests ?? '-').padStart(9)} ${String(row.results ?? '-').padStart(7)}`
     + ` ${typeof row.reliability === 'number' ? row.reliability.toFixed(2).padStart(6) : '     -'}`
+    + ` ${secs(row.avgTotalSec)} ${secs(row.avgHttpSec)}`
     + `  ${mode === undefined ? '' : `${mode[0]} ×${mode[1]}`}`,
+  )
+}
+if (metrics.length > 0) {
+  console.log(
+    'avg_s / http_s are per-request averages over the requests this sample counted,\n' + 
+    'derived from SearXNG\'s gauges; `http_s` is the fetch and the difference is\n' +
+    'SearXNG\'s own processing. A timeout failure on an engine whose avg_s is well\n' +
+    'below the configured `timeout:` means the budget is not the problem — the engine\n' +
+    'or the path to it is.',
   )
 }
 
