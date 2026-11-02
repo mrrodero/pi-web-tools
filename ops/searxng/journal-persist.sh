@@ -57,5 +57,7 @@ echo "searxng journal coverage now available:"
 journalctl CONTAINER_NAME=searxng --no-pager -n 1 -o short-iso 2>/dev/null || echo "  (no searxng entries found)"
 journalctl CONTAINER_NAME=searxng --no-pager -n 1 -o short-iso --since "1 year ago" 2>/dev/null | head -1 || true
 echo
-echo "Retention is bounded by SystemMaxUse: journald drops the oldest files when"
-echo "the cap is reached. For a sample that never rolls off, run harvest.sh."
+echo "Retention note: SystemMaxUse is the hard ceiling, but on this DietPi host"
+echo "the hourly dietpi-logclear truncates every file under /var/log - journal"
+echo "storage included - so the journal keeps only ~1 hour of lines. The harvest"
+echo "on a schedule (harvest.sh, every 15 min) is what actually preserves them."

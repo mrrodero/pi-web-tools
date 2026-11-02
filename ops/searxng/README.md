@@ -58,7 +58,7 @@ verifies before changing anything, prints exactly what it is about to do, and
 refuses to run without `--apply`. It writes
 `/etc/systemd/journald.conf.d/90-searxng-retention.conf` with `Storage=persistent`
 plus size caps, creates `/var/log/journal`, restarts `systemd-journald`, flushes
-the current volatile entries to disk, and vacuum-limits them:
+the current volatile entries to disk, and rotates them to bound growth:
 
 ```bash
 ssh root@192.168.144.120 'cat > /usr/local/sbin/journal-persist.sh && chmod 755 /usr/local/sbin/journal-persist.sh' < journal-persist.sh
@@ -89,7 +89,9 @@ crash-looping over a bad `settings.yml` (see §5), and the journal kept it —
 ```
 
 Under the old volatile journal a restart of `systemd-journald`, a reboot, or a
-`docker compose down` would have thrown that away.
+`docker compose down` would have thrown that away. (The 12:45 CET flush is
+what saved those lines at all; the hourly logclear described in §3 wiped them
+from the journal at 13:17 CET, so the quote above is now the only copy.)
 
 After that, searxng logs survive reboots, `docker compose down`, and container
 recreation. Note this is host-wide — it also keeps DietPi's other services.
@@ -103,8 +105,14 @@ it does not touch the searxng container.
 in four kinds:
 
 - `journal` — each searxng log line since the last run, parsed into
-  `engine` / `exception` / `file` / `line`. Read with `journalctl --cursor`, so
-  it is incremental and never re-reads a window.
+  `engine` / `exception` / `file` / `line`. Read with `journalctl
+  --after-cursor=<last cursor>` — one combined option, because a bare
+  `--after-cursor` flag errors out and the script's `|| true` swallows it.
+  That is exactly what happened on 2026-11-02: the first run (10:46:28Z,
+  `--since=today`) wrote the cursor and landed the 24 journal records, and
+  every run after that took this branch and silently landed nothing until
+  14:05:29Z, a 3.3 h gap in the journal sample — so it is incremental and never
+  re-reads a window.
 - `stats_errors` — the instance's own `GET /stats/errors` snapshot: per-engine
   failure classes with percentages *relative to that engine's requests since
   instance start*. Only repeated snapshots make a trend.
@@ -152,9 +160,15 @@ Two rules this file has to obey, both learned the hard way:
 active, so a sample lands every 15 minutes whether anyone is looking or not. Its
 run log is `/opt/docker/llm/searxng/harvest/harvest.log`, deliberately **not** in
 `/var/log`: `/etc/cron.hourly/dietpi` runs `/boot/dietpi/func/dietpi-logclear`
-every hour at :17 and truncates `/var/log/*.log` in place — no logrotate config, no
-`.1` copy, the file is simply 0 bytes afterwards (measured on a log that had two
-lines in it; `/var/log/rsyncd.log` was empty in the same minute). Do
+every hour at :17 and truncates **every file under `/var/log`** in place — no
+logrotate config, no `.1` copy, the file is simply 0 bytes afterwards (measured
+on a log that had two lines in it; `/var/log/rsyncd.log` was empty in the same
+minute). That includes the journald storage under `/var/log/journal/`, so even
+the §2 persistent journal keeps only the last hour of lines (measured: the
+12:39 CET crash-loop lines, flushed to disk at 12:45 CET, were gone at the
+13:17 CET pass; everything logged since remained). The 15-minute cadence is
+therefore the actual retention mechanism for journal lines — a gap of more than
+an hour (host off, cron off) loses whatever the journal still held. Do
 **not** cron `scripts/engine-health.ts` — its probes send real queries to real
 engines, and doing that unattended is how you get rate-limited, which is the very
 failure it measures.
@@ -252,6 +266,9 @@ silently, so a future dict form would be surprising), and it states
 
 ## 6. What is still weak about this
 
+- The journal's retention on this host is ~1 hour: DietPi's hourly logclear
+  truncates the journald storage too (see §3), so the harvest cadence is
+  load-bearing and the NDJSON is the only durable copy of journal lines.
 - Engine health is time-of-day and rate-limit dependent. duckduckgo contributed
   the best-scoring results earlier on 2026-11-02 and was CAPTCHA-blocked 10/10
   later the same day. Treat every candidate block as provisional and re-measure.

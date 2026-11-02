@@ -10,8 +10,9 @@
 # files with unusual names or permissions, so keep this file 644 and named
 # searxng-harvest — no dots, no dashes-at-start.
 #
-# 15 minutes is the right cadence for this: `journalctl --cursor` makes each run
-# cost one scan of the last interval, and /stats/errors percentages are relative
+# 15 minutes is the right cadence for this: `journalctl --after-cursor=<value>`
+# makes each run cost one scan of the last interval, and /stats/errors
+# percentages are relative
 # to instance start, so it is the snapshots over time that become a trend.
 #
 # Do NOT schedule scripts/engine-health.ts: its probes send real queries to real
@@ -36,8 +37,10 @@ MAILTO=""
 #
 # The log goes in the harvest directory, not /var/log. DietPi runs
 # `/boot/dietpi/func/dietpi-logclear` from `/etc/cron.hourly/dietpi` every hour at
-# :17, and it truncates `/var/log/*.log` in place — no logrotate config, no `.1`
-# copy, the file is just 0 bytes afterwards (measured: our log and `rsyncd.log`
-# were both empty at 13:17). A month of harvest run history written there would be
-# wiped monthly-into-oblivion while looking like it was kept.
+# :17, and it truncates *every* file under /var/log in place - journald storage
+# included, so the persistent journal keeps only the last hour of lines; no
+# logrotate config, no `.1` copy, the file is just 0 bytes afterwards
+# (measured: our log and `rsyncd.log` were both empty at 13:17, and the journal
+# entries before 13:17 were gone in the same pass). The 15-minute cadence is
+# what actually preserves journal lines - a gap of more than an hour loses them.
 */15 * * * * root /opt/docker/llm/searxng/harvest/harvest.sh >> /opt/docker/llm/searxng/harvest/harvest.log 2>&1
