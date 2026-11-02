@@ -23,10 +23,14 @@ SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 MAILTO=""
 
-# The leading `. file` sources OPEN_METRICS_PASSWORD from a root-only (mode 600)
-# file, so the password never appears in git or in the crontab itself. It must
-# equal `general.open_metrics` in settings.yml; harvest.sh sends it as HTTP
-# Basic auth (webapp.py:1182 reads the Authorization header, not a query param).
-# With the variable unset the /metrics snapshot is skipped and the other three
-# record kinds still land.
-*/15 * * * * root . /opt/docker/llm/searxng/harvest/harvest.env; /opt/docker/llm/searxng/harvest/harvest.sh >> /var/log/searxng-harvest.log 2>&1
+# OPEN_METRICS_PASSWORD comes from /opt/docker/llm/searxng/harvest/harvest.env
+# (root, mode 600), which harvest.sh sources itself — the password appears
+# neither in git nor in this crontab. It must equal `general.open_metrics` in
+# settings.yml, and harvest.sh sends it as HTTP Basic auth (webapp.py:1182 reads
+# the Authorization header, not a query param). Do not source it here instead:
+# cron runs its command in a shell where `. file` assigns without exporting, so
+# harvest.sh would see the variable unset and skip the /metrics snapshot while
+# every other record kind still landed — which is what this line used to do.
+# With the variable genuinely unset, the /metrics snapshot is skipped and the
+# other three record kinds still land.
+*/15 * * * * root /opt/docker/llm/searxng/harvest/harvest.sh >> /var/log/searxng-harvest.log 2>&1

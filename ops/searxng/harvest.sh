@@ -4,7 +4,7 @@
 #
 # Why this exists: both obvious sources are ephemeral. journald on this host was
 # volatile (RAM only, wiped at boot) until journal-persist.sh ran — it is
-# persistent now, but capped (SystemMaxUse=500M), so the oldest engine evidence
+# persistent now, but capped (SystemMaxUse=1G), so the oldest engine evidence
 # still rolls off. And `/stats`, `/stats/errors` and `/metrics` count from
 # process start: a restart resets them, a redeploy wipes the sample. Tuning an
 # engine allowlist needs a sample that accumulates for months, so make it
@@ -21,6 +21,20 @@
 #
 # Run from cron (see cron.d.example). Idempotent and safe to re-run by hand.
 set -euo pipefail
+
+# Config lives next to the script: a root-only (mode 600) file of KEY=value
+# pairs — OPEN_METRICS_PASSWORD plus any of the knobs below. Sourcing it here
+# rather than in the crontab is deliberate: cron runs its command in a shell
+# where `. file` assigns *without* exporting, so a crontab-sourced password was
+# invisible to harvest.sh and the metrics snapshot quietly stopped landing while
+# everything else looked healthy.
+self_dir=$(cd "$(dirname "$0")" && pwd)
+if [ -r "$self_dir/harvest.env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . "$self_dir/harvest.env"
+  set +a
+fi
 
 SEARXNG_URL="${SEARXNG_URL:-http://127.0.0.1:8888}"
 CONTAINER="${CONTAINER:-searxng}"

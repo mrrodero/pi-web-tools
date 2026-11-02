@@ -137,10 +137,16 @@ Two rules this file has to obey, both learned the hard way:
   live file at `/opt/docker/llm/searxng/core-config/settings.yml` carries the real
   values (previous version kept as `settings.yml.bak-20261102T113510Z`), and
   `harvest.sh` gets the metrics password from
-  `/opt/docker/llm/searxng/harvest/harvest.env` (root, mode 600), which the cron
-  entry sources before running it. Applying this drop-in therefore means: read the
-  two live secrets, substitute them into a copy of this file, write it, restart —
-  never edit the copy in git.
+  `/opt/docker/llm/searxng/harvest/harvest.env` (root, mode 600), which it sources
+  itself. That is the second thing this wiring got wrong before it got right: a
+  crontab line that sources the file (`cron.d` runs its command through a shell
+  where `. file` assigns **without** exporting) left `harvest.sh` with the
+  variable unset, so the `metrics` record quietly stopped landing every 15 minutes
+  while the other three kinds kept arriving. `env -u OPEN_METRICS_PASSWORD -i …
+  harvest.sh` is the check that proves the script can find its own config.
+  Applying this drop-in therefore means: read
+  the two live secrets, substitute them into a copy of this file, write it,
+  restart — never edit the copy in git.
 
 `/etc/cron.d/searxng-harvest` (from `cron.d.example`) is installed and `cron` is
 active, so a sample lands every 15 minutes whether anyone is looking or not. Do
