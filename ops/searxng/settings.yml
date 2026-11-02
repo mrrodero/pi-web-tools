@@ -103,6 +103,15 @@ engines:
   - name: mwmbl
     disabled: false
 
+  # google cse: left at the default (enabled) on 2026-11-02 — a decision, not an oversight.
+  # The engine has no API key; it rides the shared blackle.com CSE hardcoded in
+  # google_cse.py (the CX constant), so Google rate-limits it with intermittent 429s
+  # (SearxEngineTooManyRequestsException, google_cse.py:143). As of 2026-11-02 it is
+  # the most reliable engine here (10/10 probes, 0% failures, top-scoring hits), so we
+  # accept the rate limiting rather than patch the hardcoded CX with our own CSE.
+  # Revisit if `npm run trends` shows chronic 429s.
+
+
   # Kept, with a longer timeout: yahoo timed out 4 times in the harvested hour
   # (the only engine searxng logged as "engine timeout" without an exception
   # class) and still contributed hits in 10/10 health probes.
