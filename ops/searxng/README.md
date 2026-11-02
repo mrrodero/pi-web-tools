@@ -149,7 +149,12 @@ Two rules this file has to obey, both learned the hard way:
   restart — never edit the copy in git.
 
 `/etc/cron.d/searxng-harvest` (from `cron.d.example`) is installed and `cron` is
-active, so a sample lands every 15 minutes whether anyone is looking or not. Do
+active, so a sample lands every 15 minutes whether anyone is looking or not. Its
+run log is `/opt/docker/llm/searxng/harvest/harvest.log`, deliberately **not** in
+`/var/log`: `/etc/cron.hourly/dietpi` runs `/boot/dietpi/func/dietpi-logclear`
+every hour at :17 and truncates `/var/log/*.log` in place — no logrotate config, no
+`.1` copy, the file is simply 0 bytes afterwards (measured on a log that had two
+lines in it; `/var/log/rsyncd.log` was empty in the same minute). Do
 **not** cron `scripts/engine-health.ts` — its probes send real queries to real
 engines, and doing that unattended is how you get rate-limited, which is the very
 failure it measures.
