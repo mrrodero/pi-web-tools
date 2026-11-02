@@ -1,0 +1,10 @@
+# Everything in this repo is LF in the index, and some of it is executed as
+# shell on a Linux host by piping the file straight to `ssh … bash`. A CRLF
+# checkout silently breaks those scripts (jq programs, heredocs, shebangs), so
+# line endings are pinned rather than left to each clone's core.autocrlf.
+* text=auto eol=lf
+*.sh text eol=lf
+*.ts text eol=lf
+*.yml text eol=lf
+*.json text eol=lf
+*.md text eol=lf
