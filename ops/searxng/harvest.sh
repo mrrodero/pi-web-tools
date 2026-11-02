@@ -3,9 +3,11 @@
 # the container's journal and SearXNG's in-process metrics.
 #
 # Why this exists: both obvious sources are ephemeral. journald on this host was
-# volatile (RAM only, wiped at boot) until journal-persist.sh ran — it is
-# persistent now, but capped (SystemMaxUse=1G), so the oldest engine evidence
-# still rolls off. And `/stats`, `/stats/errors` and `/metrics` count from
+# volatile (RAM only, wiped at boot) until journal-persist.sh ran. It is
+# persistent now, but this host's DietPi logclear truncates *every* file under
+# /var/log - journal storage included - every hour, so the journal keeps only
+# the last hour of lines and this harvest (every 15 minutes) is what actually
+# preserves them. And `/stats`, `/stats/errors` and `/metrics` count from
 # process start: a restart resets them, a redeploy wipes the sample. Tuning an
 # engine allowlist needs a sample that accumulates for months, so make it
 # accumulate on purpose.
@@ -57,7 +59,11 @@ trap 'rm -f "$tmp" "$tmp.jsonl" "$tmp2" "$tmp3"' EXIT
 # --- 1. container journal, continued from the last cursor --------------------
 journal_args=(CONTAINER_NAME="$CONTAINER" --output=json --no-pager --quiet)
 if [ -s "$CURSOR_FILE" ]; then
-  journal_args+=(--cursor="$(cat "$CURSOR_FILE")" --after-cursor)
+  # One combined option. A bare `--after-cursor` flag makes journalctl fail with
+  # "requires an argument", and the `|| true` below swallows it - exactly what
+  # this leg did on 2026-11-02: the first run (10:46:28Z) wrote the cursor, and
+  # every run after that (3.3 h of ticks) silently landed zero journal records.
+  journal_args+=(--after-cursor="$(cat "$CURSOR_FILE")")
 else
   journal_args+=(--since=today)
 fi
